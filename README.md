@@ -1,2 +1,3 @@
-# HelloWorld
+# Android Socket Client
  
+此项目是作为android helloworld而建立，有基本的控件操作，因为手里有一台好久不用的安卓手机，想尝试写一下手机和电脑通讯的类似聊天工具的功能，恰好曾写过python的pc服务器端，所以在这个helloworld中加入了socket client的功能，使用的是java.net.Socket库，经测试pc可以和手机通讯，需要手机和pc在同一个局域网下，换成其他机器操作的话可能需要修改一下源代码里的服务器和客户端的ip地址。
