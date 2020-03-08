@@ -1,7 +1,11 @@
 package com.example.helloworld;
 
+import android.annotation.SuppressLint;
 import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -12,36 +16,53 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.textfield.TextInputEditText;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 
 
 public class MainActivity extends AppCompatActivity {
-    public static final String mp3url = "https://sharefs.yun.kugou.com/202003071257/9a7cce522e42981a92400c0cbd9a89d6/G003/M01/1F/01/o4YBAFS6S4eAEuG3ADs0MT24rM8722.mp3";
-    private MediaPlayer mp = new MediaPlayer();
-    ChatClient chatClient = new ChatClient("192.168.0.101", 9999);
+    public static final String mp3url = "http://198.178.123.14:8216/";
+    private MediaPlayer mp;
+    ChatClient chatClient;
+    Handler handler;
+    TextView sendtv;
+    TextInputEditText inputtxi;
+    TextView recvtv;
 
+    @SuppressLint("HandlerLeak")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        sendtv = (TextView)findViewById(R.id.tv);
+        inputtxi = (TextInputEditText)findViewById(R.id.ti);
+        recvtv = (TextView)findViewById(R.id.tv2);
 
+        handler = new Handler(){
+            @Override
+            public void handleMessage(Message msg){
+                System.out.println("+++++++++++++++receive from server: " + msg.obj.toString());
+                if(msg.what == 0x123)
+                {
+                    if(parseCmd(msg.obj.toString()) < 0)
+                        recvtv.setText(msg.obj.toString());
+                }
+            }
+        };
 
         try {
             System.out.println("create mp");
+            mp = new MediaPlayer();
             mp.setDataSource(mp3url);
             mp.prepare();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            System.out.println("create socket");
-//            this.startNetThread("192.168.0.101", 9999);
-            chatClient.start();
-            System.out.println("create socket end");
+//            startNetThread("192.168.0.101", 9999);
+            chatClient = new ChatClient("192.168.0.101", 9999, handler);
+            new Thread(chatClient).start();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -83,69 +104,21 @@ public class MainActivity extends AppCompatActivity {
         }.start();
     }
 
-    //////////////////////////////////////////////////////////////////////////////
+    public int parseCmd(String cmd) {
+        int retcode = -1;
 
-    public class ChatClient extends Thread {
-        private String address;
-        private int port;
-        private Socket socketClient = null;
-        private boolean keepConnect = true;
-        private InputStream inputs = null;
-        private OutputStream outputs = null;
-        private MsgReceiver msgrecv = null;
+        if(cmd.equals(new String("toast"))){
+            Toast.makeText(this, "server request toast", Toast.LENGTH_SHORT).show();
+        }
+        else if(cmd.equals(new String("play"))){
+            if(!mp.isPlaying())
+                mp.start();
 
-        public ChatClient(String address, int port){
-            this.address = address;
-            this.port = port;
+            retcode = 1;
         }
 
-        public void init() throws IOException {
-            socketClient = new Socket(address, port);
-            inputs = socketClient.getInputStream();
-            outputs = socketClient.getOutputStream();
-            msgrecv = new MsgReceiver();
-            msgrecv.start();
-
-            new Thread(()->{
-                System.out.println("cc constructor++++++++++++++++++++++++++++");
-                System.out.println(socketClient.isConnected());
-                System.out.println("cc constructor++++++++++++++++++++++++++++2");
-            }).start();
-        }
-
-        @Override
-        public void run(){
-            try {
-                init();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        public void send(String str) throws IOException {
-            outputs.write(str.getBytes());
-            outputs.flush();
-        }
-
-        class MsgReceiver extends Thread {
-            TextView txv = (TextView)findViewById(R.id.tv2);
-            @Override
-            public void run(){
-                while (keepConnect){
-                    try {
-                        final byte[] readBuffer = new byte[1024];
-                        final int readBufferLen;
-                        readBufferLen = inputs.read(readBuffer);
-                        txv.setText(new String(readBuffer, 0, readBufferLen));
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
+        return retcode;
     }
-
-    //////////////////////////////////////////////////////////////
 
     static boolean playstate = false;
     public void playmusic(View view) {
@@ -153,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
         Button bt = (Button)findViewById(R.id.btnplay);
         bt.setText(playstate ? "暂停" : "播放");
 
-        Toast.makeText(this, playstate ? "播放《让一切随风》" : "暂停播放《让一切随风》",
+        Toast.makeText(this, playstate ? "播放网络电台" : "暂停播放网络电台",
                 Toast.LENGTH_SHORT).show();
 
         if(playstate){
@@ -170,17 +143,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void send(View view) throws IOException {
-        TextView txv = (TextView)findViewById(R.id.tv);
-        TextInputEditText txi = (TextInputEditText)findViewById(R.id.ti);
-        txv.setText(txi.getText());
-
-        new Thread(()->{
-            try {
-                chatClient.send(txi.getText().toString());
-            } catch (IOException e) {
-                e.printStackTrace();
+        try {
+            if(!inputtxi.getText().toString().isEmpty()) {
+                System.out.println("+++++++++++++++send from client: " + inputtxi.getText().toString());
+                sendtv.setText(inputtxi.getText());
+                Message msg = new Message();
+                msg.what = 0x345;
+                msg.obj = inputtxi.getText().toString();
+                chatClient.recvhandler.sendMessage(msg);
+                inputtxi.setText("");
             }
-        }).start();
+        } catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     static boolean imgstate = true;
@@ -203,3 +178,111 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+
+class ChatClient implements Runnable{
+    private String address;
+    private int port;
+    private Handler handler;
+    public Handler recvhandler;
+    private Socket socketClient = null;
+    BufferedReader bufferedReader = null;
+    InputStream inputs = null;
+    OutputStream outputs = null;
+
+    public ChatClient(String address, int port, Handler handler){
+        this.address = address;
+        this.port = port;
+        this.handler = handler;
+
+        Linker linker = new Linker();
+        linker.start();
+    }
+
+    @SuppressLint("HandlerLeak")
+    public void run(){
+        try {
+            Looper.prepare();
+            recvhandler = new Handler(){
+                @Override
+                public void handleMessage(Message msg){
+                    System.out.println("+++++++++++++++send to server: " + msg.obj.toString());
+                    if(msg.what == 0x345){
+                        send(msg.obj.toString());
+                    }
+                }
+            };
+            Looper.loop();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
+    }
+
+    class Linker extends Thread{
+        @Override
+        public void run(){
+            try {
+                socketClient = new Socket(address, port);
+                bufferedReader = new BufferedReader(new InputStreamReader(socketClient.getInputStream()));
+                inputs = socketClient.getInputStream();
+                outputs = socketClient.getOutputStream();
+
+                MsgReceiver msgReceiver = new MsgReceiver();
+                msgReceiver.start();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void send(String str){
+        try {
+            outputs.write(str.getBytes());
+            outputs.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    class MsgReceiver extends Thread {
+        final byte[] readBuffer = new byte[1024];
+        int readBufferLen = 0;
+
+        @Override
+        public void run(){
+            while (true){
+                try {
+                    readBufferLen = inputs.read(readBuffer);
+                    Message msg = new Message();
+                    msg.what = 0x123;
+                    msg.obj = new String(readBuffer, 0, readBufferLen);
+                    handler.sendMessage(msg);
+                    System.out.println("+++++++++++++++client receive: " + msg.obj.toString());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        //bufferedReader.readLine()要求接收到的数据必须以'\n'结尾，需要服务器配合
+//        public void run() {
+//            String content = null;
+//            try {
+//                while ((content = bufferedReader.readLine()) != null) {
+//                    System.out.println("+++++++++++++++client receive: " + content);
+//                    Message msg = new Message();
+//                    msg.what = 0x123;
+//                    msg.obj = content;
+//                    handler.sendMessage(msg);
+//                }
+//            } catch (Exception e) {
+//                e.printStackTrace();
+//            }
+//        }
+    }
+
+}
+
+//////////////////////////////////////////////////////////////
